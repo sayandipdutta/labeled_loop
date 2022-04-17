@@ -2,54 +2,63 @@ from dataclasses import dataclass
 from typing import Iterable
 
 
+class BreakLoop(StopIteration):
+    def __init__(self, *args, label, **kwargs):
+        super().__init__(self, *args, **kwargs)
+        self.label = label
+
+
 @dataclass
 class LoopVar:
     data: Iterable
-    level: int
+    label: int
     terminate: bool = False
 
     def __iter__(self):
-        level = self.level
+        label = self.label
         for item in self.data:
             self.terminate = yield item
             if self.terminate:
-                return level
-                
+                return label
 
 
 class LabeledLoopHandler:
     def __init__(self):
-        self.levels = dict()
+        self.labels = dict()
         self.broken_from = None
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
-        if isinstance(exc_value, StopIteration) and exc_value.value == self.broken_from:
+        if (isinstance(exc_value, BreakLoop)
+                and exc_value.label == self.broken_from):
             return True
 
-    def iter(self, iterable: Iterable, level: int):
-        self.levels[level] = lv = iter(LoopVar(iterable, level, False))
+    def loop(self, iterable: Iterable, label: int):
+        self.labels[label] = lv = iter(LoopVar(iterable, label, False))
         for item in lv:
             yield item
 
-    def break_from(self, level):
-        lv = self.levels[level]
-        self.broken_from = level
-        lv.send(True)
+    def break_from(self, label):
+        lv = self.labels[label]
+        self.broken_from = label
+        try:
+            lv.send(True)
+        except StopIteration:
+            raise BreakLoop(label=label)
+
 
 it = (i for i in range(5))
 
-with LabeledLoopHandler() as lh:
-    for i in lh.iter(it, level=0):
+with LabeledLoopHandler() as labeled:
+    for i in labeled.loop(it, label=0):
         print(f'{i=}')
-        for j in lh.iter(range(3), level=1):
+        for j in labeled.loop(range(3), label=1):
             print(f'{j=}')
-            for k in lh.iter(range(2), level=2):
+            for k in labeled.loop(range(2), label=2):
                 print(f'{k=}')
                 if i > 1:
-                    lh.break_from(0)
+                    labeled.break_from(label=0)
 
-print(i, j, k)
 print(list(it))
