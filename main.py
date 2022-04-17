@@ -31,6 +31,7 @@ class LabeledLoopHandler:
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
+        self.labels.clear()
         if (isinstance(exc_value, BreakLoop)
                 and exc_value.label == self.broken_from):
             return True
