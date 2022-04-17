@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Generator, Generic, Iterable, TypeVar
 
 
 class BreakLoop(StopIteration):
@@ -8,18 +8,22 @@ class BreakLoop(StopIteration):
         self.label = label
 
 
+T = TypeVar('T')
+
+
 @dataclass
-class LoopVar:
-    data: Iterable
+class LoopVar(Generic[T]):
+    data: Iterable[T]
     label: int
     terminate: bool = False
 
-    def __iter__(self):
+    def __iter__(self) -> Generator[T, bool, int]:
         label = self.label
         for item in self.data:
             self.terminate = yield item
             if self.terminate:
                 return label
+        return -1
 
 
 class LabeledLoopHandler:
@@ -27,27 +31,35 @@ class LabeledLoopHandler:
         self.labels = dict()
         self.broken_from = None
 
-    def __enter__(self):
+    def __enter__(self) -> 'LabeledLoopHandler':
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_tb):
+    def __exit__(self, *exc: Any) -> bool:
+        _, exc_value, _ = exc
         self.labels.clear()
         if (isinstance(exc_value, BreakLoop)
                 and exc_value.label == self.broken_from):
             return True
+        return False
 
-    def loop(self, iterable: Iterable, label: int):
+    def loop(
+            self,
+            iterable: Iterable,
+            label: int
+            ) -> Generator[Any, None, None]:
         self.labels[label] = lv = iter(LoopVar(iterable, label, False))
         for item in lv:
             yield item
 
-    def break_from(self, label):
+    def break_from(self, label: int):
         lv = self.labels[label]
         self.broken_from = label
         try:
             lv.send(True)
         except StopIteration:
             raise BreakLoop(label=label)
+        else:
+            raise RuntimeError("Generator didn't stop.")
 
 
 it = (i for i in range(5))
