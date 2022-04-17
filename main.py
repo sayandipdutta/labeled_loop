@@ -1,77 +1,42 @@
-from dataclasses import dataclass
-from typing import Any, Generator, Generic, Iterable, TypeVar
-
-
-class BreakLoop(StopIteration):
-    def __init__(self, *args, label, **kwargs):
-        super().__init__(self, *args, **kwargs)
-        self.label = label
-
+from typing import Generator, Iterable, TypeVar
 
 T = TypeVar('T')
 
 
-@dataclass
-class LoopVar(Generic[T]):
-    data: Iterable[T]
-    label: int
-    terminate: bool = False
-
-    def __iter__(self) -> Generator[T, bool, int]:
-        label = self.label
-        for item in self.data:
-            self.terminate = yield item
-            if self.terminate:
-                return label
-        return -1
-
-
-class LabeledLoopHandler:
+class NestedLoopHandler:
     def __init__(self):
-        self.labels = dict()
-        self.broken_from = None
-
-    def __enter__(self) -> 'LabeledLoopHandler':
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        _, exc_value, _ = exc
-        self.labels.clear()
-        if (isinstance(exc_value, BreakLoop)
-                and exc_value.label == self.broken_from):
-            return True
-        return False
+        self.nesting_levels: dict[int, Generator] = dict()
 
     def loop(
             self,
-            iterable: Iterable,
-            label: int
-            ) -> Generator[Any, None, None]:
-        self.labels[label] = lv = iter(LoopVar(iterable, label, False))
+            iterable: Iterable[T],
+            level: int
+            ) -> Generator[T, None, None]:
+        self.nesting_levels[level] = lv = (_ for _ in iterable)
         for item in lv:
             yield item
 
-    def break_from(self, label: int):
-        lv = self.labels[label]
-        self.broken_from = label
-        try:
-            lv.send(True)
-        except StopIteration:
-            raise BreakLoop(label=label)
-        else:
-            raise RuntimeError("Generator didn't stop.")
+    def break_from(self, level: int):
+        max_level = max(self.nesting_levels)
+        for i in range(max_level, level-1, -1):
+            print(f"level={i}")
+            self.nesting_levels[i].close()
 
 
 it = (i for i in range(5))
 
-with LabeledLoopHandler() as labeled:
-    for i in labeled.loop(it, label=0):
-        print(f'{i=}')
-        for j in labeled.loop(range(3), label=1):
-            print(f'{j=}')
-            for k in labeled.loop(range(2), label=2):
-                print(f'{k=}')
-                if i > 1:
-                    labeled.break_from(label=0)
+nested = NestedLoopHandler()
+
+for i in nested.loop(it, level=0):
+    print(f'{i=}')
+    for j in nested.loop(range(3), level=1):
+        print(f'{j=}')
+        for k in nested.loop(range(2), level=2):
+            print(f'{k=}')
+            if j > 1:
+                print(f"Broken at {(i, j, k)=}")
+                nested.break_from(level=1)
+        if i > 3:
+            nested.break_from(level=0)
 
 print(list(it))
